@@ -40,3 +40,9 @@ class BrownianDephasingChannel(DephasingChannel):
         drift = drift_rate * drift
         drift = np.cumsum(drift)
         self.theta = np.mod(start + drift, np.pi)
+
+
+class MovingDephasingChannel(DephasingChannel):
+    def __init__(self, error_rate, drift_rate, max_time, **kwargs):
+        super(MovingDephasingChannel, self).__init__(error_rate, max_time)
+        self.theta = np.linspace(0, np.pi, max_time)
