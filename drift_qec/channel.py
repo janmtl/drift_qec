@@ -32,6 +32,34 @@ class DephasingChannel(Channel):
         return (I, X, Z)
 
 
+class DephasingChannel2(Channel):
+    def __init__(self, error_rate, max_time, **kwargs):
+        super(DephasingChannel2, self).__init__(error_rate, max_time)
+        self.theta = np.random.rand()*np.pi*np.ones(max_time)
+        self.phi = np.random.rand()*np.pi*np.ones(max_time)
+
+    def error(self, time=0, n=1, mle={}):
+        p = self.error_rate
+        theta_est = mle.get("theta", np.pi/2)
+        phi_est = mle.get("phi", np.pi/2)
+        f_p = np.array([1-p, p, p, p])
+        f_theta = np.array([1,
+                            np.cos(self.theta[time] - theta_est) ** 2,
+                            np.sin(self.theta[time] - theta_est) ** 2,
+                            np.cos(self.theta[time] - theta_est) ** 2])
+        f_phi = np.array([1,
+                          np.cos(self.phi[time] - phi_est) ** 2,
+                          1,
+                          np.sin(self.phi[time] - phi_est) ** 2])
+        p_thetaphi = f_p * f_theta * f_phi
+        error_types = np.random.choice(4, n, p=p_thetaphi)
+        I = (error_types == 0).astype(np.int)
+        X = (error_types == 1).astype(np.int)
+        Z = (error_types == 2).astype(np.int)
+        Y = (error_types == 3).astype(np.int)
+        return (I, X, Z, Y)
+
+
 class BrownianDephasingChannel(DephasingChannel):
     def __init__(self, error_rate, drift_rate, max_time, **kwargs):
         super(BrownianDephasingChannel, self).__init__(error_rate, max_time)
@@ -40,6 +68,21 @@ class BrownianDephasingChannel(DephasingChannel):
         drift = drift_rate * drift
         drift = np.cumsum(drift)
         self.theta = np.mod(start + drift, np.pi)
+
+
+class BrownianDephasingChannel2(DephasingChannel2):
+    def __init__(self, error_rate, drift_rate, max_time, **kwargs):
+        super(BrownianDephasingChannel2, self).__init__(error_rate, max_time)
+        theta_start = np.random.rand()*np.pi
+        phi_start = np.random.rand()*np.pi
+        theta_drift = 2*np.random.randint(2, size=max_time) - 1
+        phi_drift = 2*np.random.randint(2, size=max_time) - 1
+        theta_drift = drift_rate * theta_drift
+        phi_drift = drift_rate * phi_drift
+        theta_drift = np.cumsum(theta_drift)
+        phi_drift = np.cumsum(phi_drift)
+        self.theta = np.mod(theta_start + theta_drift, np.pi)
+        self.phi = np.mod(phi_start + phi_drift, np.pi)
 
 
 class MovingDephasingChannel(DephasingChannel):
