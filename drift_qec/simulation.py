@@ -11,11 +11,12 @@ def get_fname():
     return str(getpid()) + "-" + str(time()) + ".csv"
 
 
-def simulate_rates(fname, error_rates, drift_rates, num_trials):
+def simulate_rates(fname, error_rates, relative_drift_rates, num_trials):
     with open(fname, "w") as f:
         f.write("error_rate, drift_rate, exit_time, exit_status\n")
     for error_rate in error_rates:
-        for drift_rate in drift_rates:
+        for relative_drift_rate in relative_drift_rates:
+            drift_rate = error_rate * relative_drift_rate
             for trial in range(num_trials):
                 max_time = 1 / (0.06 * error_rate) ** 2
                 channel = BrownianDephasingChannel(error_rate=error_rate,
