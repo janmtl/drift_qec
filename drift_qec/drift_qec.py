@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 import numpy as np
+import seaborn as sns
+sns.set_style("whitegrid")
+COLORS = sns.color_palette()
 
 
 class Report(object):
-    def __init__(self):
+    def __init__(self, name=""):
         self.time = []
         self.theta = []
         self.mle = []
@@ -11,6 +14,7 @@ class Report(object):
         self.w_z = []
         self.exit_status = ""
         self.exit_time = ""
+        self.name = name
 
     def record(self, time, channel, estimator, w_x, w_z):
         self.time.append(time)
@@ -22,6 +26,25 @@ class Report(object):
     def exit(self, time, exit_status):
         self.exit_time = time
         self.exit_status = exit_status
+        self.time = np.array(self.time)
+        self.theta = np.array(self.theta)
+        self.mle = np.array(self.mle)
+        self.w_x = np.array(self.w_x)
+        self.w_z = np.array(self.w_z)
+
+    def plot(self, ax):
+        ax.plot(self.time, np.mod(self.theta, np.pi),
+                label=self.name,
+                color=COLORS[0])
+        ax.plot(self.time, np.mod(self.mle, np.pi),
+                label=self.exit_status + " at " + str(self.exit_time),
+                color=COLORS[1])
+        ax.scatter(self.time[self.w_x == 1.0],
+                   np.mod(self.mle[self.w_x == 1.0], np.pi),
+                   marker="x", label="X errors", c=COLORS[2], linewidth=2.0)
+        ax.scatter(self.time[self.w_z == 1.0],
+                   np.mod(self.mle[self.w_z == 1.0], np.pi),
+                   marker="o", label="Z errors", c=COLORS[3])
 
 
 class Report2(object):

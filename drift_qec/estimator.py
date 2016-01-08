@@ -1,23 +1,24 @@
 # -*- coding: utf-8 -*-
 import numpy as np
+from scipy.stats import vonmises as vi
 
 
 def periodic_convolve(x, k):
     """
-    Returns a the convolution of periodic signal x with k assuming
-    len(k) < len(x) / 2.
+    Returns a the convolution of periodic signal x with k.
     """
-    # CHECK THAT len(k) < len(x) / 2, if not, throw exception.
-    M = len(k) / 2
-    # Pad the periodic signal with half a kernel-length on each side
-    y = np.r_[x[-np.ceil(M):], x, x[:np.floor(M)]]
-    y = np.convolve(y, k, "valid")
-    return y
+    t = np.r_[x[-len(k):], x, x[:len(k)+1]]
+    yfwd = np.convolve(t, k, "valid")
+    ybwd = np.convolve(t[::-1], k, "valid")[::-1]
+    y = 0.5*(yfwd[1:]+ybwd[:-1])
+    Mi = np.floor(len(k)/2.0).astype(np.int)
+    Mf = np.ceil(len(k)/2.0).astype(np.int)
+    return y[Mf:-Mf]
 
 
 def Brownian_kernel(drift_rate, M):
     """
-    A kernel for conovolution of a Brownian process of drift drift_rate with a
+    A kernel for convolution of a Brownian process of drift drift_rate with a
     probability distribution over the midpoints M.
     """
     T = np.max(M)
@@ -32,6 +33,26 @@ def Brownian_kernel(drift_rate, M):
     return k
 
 
+def vonMises_kernel(kappa, M):
+    """
+    A kernel for convolution of a von Mises process of spread kappa with a
+    probability distribution over the midpoints M.
+    """
+    rv = vi(kappa, loc=np.pi/2)
+    k = rv.pdf(M)
+    return k
+
+
+def Normal_kernel(sigma, M):
+    """
+    A kernel for convolution of a Normal process of spread sigma with a
+    probability distribution over the midpoints M.
+    """
+    k = np.exp(-((M - np.mean(M)) ** 2) / (2 * sigma))
+    k = k / np.sum(k)
+    return k
+
+
 class Estimator(object):
     def __init__(self, **kwargs):
         pass
@@ -41,23 +62,13 @@ class Estimator(object):
 
 
 class DephasingEstimator(Estimator):
-    def __init__(self, grains):
+    def __init__(self, grains, **kwargs):
         super(DephasingEstimator, self).__init__()
         self.mle = np.pi/2
         self.grains = grains
-        self.S = np.linspace(0, np.pi, grains+1)
+        self.S = np.linspace(0, 2*np.pi, grains+1)
         self.M = 0.5*(self.S[1:] + self.S[:-1])
         self.p = np.ones(grains) / grains
-
-    def update(self, w_x, w_z, **kwargs):
-        pass
-
-
-class BrownianDephasingEstimator(DephasingEstimator):
-    def __init__(self, grains, **kwargs):
-        super(BrownianDephasingEstimator, self).__init__(grains)
-        self.widening_rate = kwargs.get("widening_rate", 0.01)
-        self.kernel = Brownian_kernel(self.widening_rate, self.M)
 
     def update(self, w_x=0, w_z=0):
         self._update_p(w_x, w_z)
@@ -79,9 +90,6 @@ class BrownianDephasingEstimator(DephasingEstimator):
             self.p = self.p * update
             self.p = self.p / np.sum(self.p)
 
-        # Update by time (via Brownian kernel)
-        self.p = periodic_convolve(self.p, self.kernel)
-
     def _update_mle(self):
         self.mle = self.M[np.argmax(self.p)]
 
@@ -94,15 +102,45 @@ class BrownianDephasingEstimator(DephasingEstimator):
         return (x/2.0 - 1/4.0 * np.sin(2.0*x))
 
 
+class KerneledDephasingEstimator(DephasingEstimator):
+    def __init__(self, grains, **kwargs):
+        super(KerneledDephasingEstimator, self).__init__(grains)
+
+    def update(self, w_x, w_z):
+        super(KerneledDephasingEstimator, self).update(w_x, w_z)
+        self.p = periodic_convolve(self.p, self.kernel)
+
+
+class BrownianDephasingEstimator(KerneledDephasingEstimator):
+    def __init__(self, grains, **kwargs):
+        super(BrownianDephasingEstimator, self).__init__(grains)
+        self.widening_rate = kwargs.get("widening_rate", 0.01)
+        self.kernel = Brownian_kernel(self.widening_rate, self.M)
+
+
+class vonMisesDephasingEstimator(KerneledDephasingEstimator):
+    def __init__(self, grains, **kwargs):
+        super(vonMisesDephasingEstimator, self).__init__(grains)
+        self.kappa = kwargs.get("kappa", 0.01)
+        self.kernel = Normal_kernel(self.kappa, self.M)
+
+
+class NormalDephasingEstimator(KerneledDephasingEstimator):
+    def __init__(self, grains, **kwargs):
+        super(NormalDephasingEstimator, self).__init__(grains)
+        self.sigma = kwargs.get("sigma", 0.01)
+        self.kernel = Normal_kernel(self.sigma, self.M)
+
+
 class DephasingEstimator2(Estimator):
     def __init__(self, grains):
         super(DephasingEstimator2, self).__init__()
         self.mle = {"theta": np.pi/2, "phi": np.pi/2}
         self.grains = grains
-        self.theta_S = np.linspace(0, np.pi, grains+1)
+        self.theta_S = np.linspace(0, 2*np.pi, grains+1)
         self.theta_M = 0.5*(self.theta_S[1:] + self.theta_S[:-1])
         self.theta_p = np.ones(grains) / grains
-        self.phi_S = np.linspace(0, np.pi, grains+1)
+        self.phi_S = np.linspace(0, 2*np.pi, grains+1)
         self.phi_M = 0.5*(self.phi_S[1:] + self.phi_S[:-1])
         self.phi_p = np.ones(grains) / grains
 
