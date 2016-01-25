@@ -32,7 +32,6 @@ class DephasingChannel(Channel):
         return (I, X, Z)
 
 
-
 class BrownianDephasingChannel(DephasingChannel):
     def __init__(self, error_rate, drift_rate, max_time, **kwargs):
         super(BrownianDephasingChannel, self).__init__(error_rate, max_time)
