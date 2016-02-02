@@ -11,24 +11,29 @@ def _sin_partial(x):
     return (x/2.0 - 1/4.0 * np.sin(2.0*x))
 
 
-class Theta(Parameter):
+class ThetaPhi(Parameter):
     """An angle of decesion from the |0> pole."""
-    def __init__(self, max_time, grains, sigma):
+    def __init__(self, max_time, grains, sigma, p1, p2, p3):
         S = np.linspace(0, np.pi, grains+1)
-        super(Theta, self).__init__(S, max_time, "Theta")
-        start = np.random.rand()*np.pi
-        drift = np.random.normal(0.0, sigma, max_time+1)
-        drift = np.cumsum(drift)
-        self.val = np.mod(start + drift, np.pi)
+        super(ThetaPhi, self).__init__(S, max_time, "Theta")
+        start_theta = np.random.rand()*np.pi
+        drift_theta = np.random.normal(0.0, sigma, max_time+1)
+        drift_theta = np.cumsum(drift_theta)
+        start_phi = np.random.rand()*np.pi
+        drift_phi = np.random.normal(0.0, sigma, max_time+1)
+        drift_phi = np.cumsum(drift_phi)
+        self.val = np.array([np.mod(start_theta + drift_theta, np.pi),
+                             np.mod(start_phi + drift_phi, np.pi)])
+        self.p1, self.p2, self.p3 = p1, p2, p3
 
     def update(self, s, time):
         w_x, w_z = np.sum(s[0]), np.sum(s[2])
-        if (w_x > 0) | (w_z > 0):
+        if (w_x > 0) | (w_y > 0) | (w_z > 0):
             update = np.ones(len(self.M))
             if (w_x > 0):
-                x_update = _cos_partial(self.S[1:] - self.hat[time]) \
-                    - _cos_partial(self.S[:-1] - self.hat[time])
                 update = update * (x_update ** (2 * w_x))
+            if (w_y > 0):
+
             if (w_z > 0):
                 z_update = _sin_partial(self.S[1:] - self.hat[time]) \
                     - _sin_partial(self.S[:-1] - self.hat[time])

@@ -11,15 +11,16 @@ def _sin_partial(x):
     return (x/2.0 - 1/4.0 * np.sin(2.0*x))
 
 
-class Theta(Parameter):
+class ThetaFFT(Parameter):
     """An angle of decesion from the |0> pole."""
-    def __init__(self, max_time, grains, sigma):
+    def __init__(self, max_time, grains, sigma, k):
         S = np.linspace(0, np.pi, grains+1)
-        super(Theta, self).__init__(S, max_time, "Theta")
+        super(ThetaFFT, self).__init__(S, max_time, "Theta")
         start = np.random.rand()*2*np.pi
         drift = np.random.normal(0.0, sigma, max_time+1)
         drift = np.cumsum(drift)
         self.val = np.mod(start + drift, np.pi)
+        self.k = k
 
     def update(self, s, time):
         w_x, w_z = np.sum(s[0]), np.sum(s[2])
@@ -34,7 +35,51 @@ class Theta(Parameter):
                     - _sin_partial(self.S[:-1] - self.hat[time])
                 update = update * (z_update ** (2 * w_z))
             self.p = self.p * update
-            self.p = self.p / np.sum(self.p)
+            n = len(self.p)
+            k = self.k
+            w = np.fft.fft(self.p)
+            w = np.roll(w, n/2)
+            w[:n/2-k] = 0.0
+            w[n/2+k:] = 0.0
+            w = np.roll(w, n/2)
+            y = np.fft.ifft(w)
+            self.p = y/np.sum(y)
+        self.hat[time+1] = self.M[np.argmax(self.p)]
+
+
+class ThetaNormals(Parameter):
+    """An angle of decesion from the |0> pole."""
+    def __init__(self, max_time, grains, sigma, k):
+        S = np.linspace(0, np.pi, grains+1)
+        super(ThetaFFT, self).__init__(S, max_time, "Theta")
+        start = np.random.rand()*2*np.pi
+        drift = np.random.normal(0.0, sigma, max_time+1)
+        drift = np.cumsum(drift)
+        self.val = np.mod(start + drift, np.pi)
+        self.k = k
+
+    def update(self, s, time):
+        w_x, w_z = np.sum(s[0]), np.sum(s[2])
+        if (w_x > 0) | (w_z > 0):
+            update = np.ones(len(self.M))
+            if (w_x > 0):
+                x_update = _cos_partial(self.S[1:] - self.hat[time]) \
+                    - _cos_partial(self.S[:-1] - self.hat[time])
+                update = update * (x_update ** (2 * w_x))
+            if (w_z > 0):
+                z_update = _sin_partial(self.S[1:] - self.hat[time]) \
+                    - _sin_partial(self.S[:-1] - self.hat[time])
+                update = update * (z_update ** (2 * w_z))
+            self.p = self.p * update
+            n = len(self.p)
+            k = self.k
+            w = np.fft.fft(self.p)
+            w = np.roll(w, n/2)
+            w[:n/2-k] = 0.0
+            w[n/2+k:] = 0.0
+            w = np.roll(w, n/2)
+            y = np.fft.ifft(w)
+            self.p = y/np.sum(y)
         self.hat[time+1] = self.M[np.argmax(self.p)]
 
 

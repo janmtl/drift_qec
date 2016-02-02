@@ -117,19 +117,19 @@ class Report(object):
             time = np.arange(len(self.time)+1)
             param_max = np.max(param.S)
             ax.plot(time, np.mod(param.hat, param_max),
-                    label=name, color=color)
+                    label="{} estimate".format(name), color=color)
             ax.plot(time, np.mod(param.val, param_max),
-                    label=name, color=color, ls="--")
+                    label="{} actual".format(name), color=color, ls="--")
             if weightson:
                 sel_x = (self.w_x == 1.0)
                 sel_y = (self.w_y == 1.0)
                 sel_z = (self.w_z == 1.0)
                 ax.scatter(time[sel_x], np.mod(param.hat[sel_x], param_max),
                            marker="x", label="X errors", c=color,
-                           linewidth=3.0)
+                           linewidth=2.0)
                 ax.scatter(time[sel_y], np.mod(param.hat[sel_y], param_max),
-                           marker="o", label="Y errors", c="red",
-                           linewidth=3.0)
+                           marker="o", label="Y errors", c="green",
+                           s=20.0)
                 ax.scatter(time[sel_z], np.mod(param.hat[sel_z], param_max),
-                           marker="o", label="Z errors", c=color,
-                           linewidth=3.0)
+                           marker="o", label="Z errors", c="red",
+                           s=20.0)
