@@ -3,6 +3,38 @@ from base import Parameter, Channel, Estimator, Constant, Report
 import numpy as np
 
 
+def Qx(w):
+    d = w.shape
+    return np.array([[np.ones(d),  np.zeros(d), np.zeros(d)],
+                     [np.zeros(d),   np.cos(w),   np.sin(w)],
+                     [np.zeros(d),  -np.sin(w),   np.cos(w)]])
+
+
+def Qz(w):
+    d = w.shape
+    return np.array([[ np.cos(w),    np.sin(w), np.zeros(d)],
+                     [-np.sin(w),    np.cos(w), np.zeros(d)],
+                     [np.zeros(d), np.zeros(d), np.ones(d)]])
+
+
+def getQ(grains=100):
+    theta1 = np.linspace(0, np.pi, grains)
+    psi = np.linspace(0, 2*np.pi, grains)
+    theta2 = np.linspace(0, np.pi, grains)
+    Q1 = Qz(theta1)
+    Q2 = Qx(psi)
+    Q3 = Qz(theta2)
+    Q12 = np.tensordot(Q1, Q2, axes=([0], [1]))
+    Q12 = np.swapaxes(Q12, 1, 2)
+    Q123 = np.tensordot(Q12, Q3, axes=([0], [1]))
+    Q123 = np.swapaxes(np.swapaxes(Q123, 1, 3), 2, 3)
+    return Q123
+
+
+def Q_probs(Q_grid, kappa=0.1):
+    pass
+
+
 def _cos_partial(x):
     return (x/2.0 + 1/4.0 * np.sin(2.0*x))
 

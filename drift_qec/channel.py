@@ -6,7 +6,6 @@ class Channel(object):
     def __init__(self, error_rate, max_time):
         self.error_rate = error_rate
         self.max_time = max_time
-        self.time = np.arange(max_time)
         pass
 
     def error(self, n=1):
