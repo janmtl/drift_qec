@@ -60,7 +60,6 @@ class Channel(object):
     def __init__(self, n, max_time):
         self.n = n
         self.max_time = max_time
-        self.T = np.arange(max_time)
 
     def error(self, params, constants):
         px = self.px(params, constants)

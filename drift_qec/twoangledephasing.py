@@ -1,137 +1,178 @@
 # -*- coding: utf-8 -*-
-from base import Parameter, Channel, Estimator, Constant, Report
 import numpy as np
 
 
 def Qx(w):
+    if type(w) != np.ndarray:
+        if type(w) != list:
+            w = np.array([w])
+        else:
+            w = np.array(w)
     d = w.shape
-    return np.array([[np.ones(d),  np.zeros(d), np.zeros(d)],
-                     [np.zeros(d),   np.cos(w),   np.sin(w)],
-                     [np.zeros(d),  -np.sin(w),   np.cos(w)]])
+    if len(w) > 1:
+        out = np.array([[np.ones(d),  np.zeros(d), np.zeros(d)],
+                        [np.zeros(d),   np.cos(w),   np.sin(w)],
+                        [np.zeros(d),  -np.sin(w),   np.cos(w)]])
+    else:
+        out = np.array([[1.0,        0.0,       0.0],
+                        [0.0,  np.cos(w), np.sin(w)],
+                        [0.0, -np.sin(w), np.cos(w)]])
+    return out
 
 
 def Qz(w):
+    if type(w) != np.ndarray:
+        if type(w) != list:
+            w = np.array([w])
+        else:
+            w = np.array(w)
     d = w.shape
-    return np.array([[ np.cos(w),    np.sin(w), np.zeros(d)],
-                     [-np.sin(w),    np.cos(w), np.zeros(d)],
-                     [np.zeros(d), np.zeros(d), np.ones(d)]])
+    if len(w) > 1:
+        out = np.array([[np.cos(w),     np.sin(w), np.zeros(d)],
+                        [-np.sin(w),    np.cos(w), np.zeros(d)],
+                        [np.zeros(d), np.zeros(d),  np.ones(d)]])
+    else:
+        out = np.array([[np.cos(w[0]),  np.sin(w[0]), 0.0],
+                        [-np.sin(w[0]), np.cos(w[0]), 0.0],
+                        [0.0,              0.0, 1.0]])
+    return out
 
 
-def getQ(grains=100):
-    theta1 = np.linspace(0, np.pi, grains)
-    psi = np.linspace(0, 2*np.pi, grains)
-    theta2 = np.linspace(0, np.pi, grains)
+def Q(theta1, psi, theta2):
     Q1 = Qz(theta1)
     Q2 = Qx(psi)
     Q3 = Qz(theta2)
     Q12 = np.tensordot(Q1, Q2, axes=([0], [1]))
-    Q12 = np.swapaxes(Q12, 1, 2)
+    if len(Q12.shape) > 2:
+        Q12 = np.swapaxes(Q12, 1, 2)
     Q123 = np.tensordot(Q12, Q3, axes=([0], [1]))
-    Q123 = np.swapaxes(np.swapaxes(Q123, 1, 3), 2, 3)
+    if len(Q123.shape) > 2:
+        Q123 = np.rollaxis(Q123, 3, 1)
     return Q123
 
 
-def Q_probs(Q_grid, kappa=0.1):
-    pass
+class UpdatesBank(object):
+    def __init__(self, error_rate=0.1, kappa=0.1, grains=100):
+        self.error_rate = error_rate
+        self.kappa = kappa
+        theta1 = np.linspace(0, np.pi, grains)
+        psi = np.linspace(0, 2*np.pi, grains)
+        theta2 = np.linspace(0, np.pi, grains)
+        Q123 = Q(theta1, psi, theta2)
+        self.Q = Q123
+        self.QQ = np.einsum('ijpqr,klpqr->ijklpqr', Q123, Q123)
+        self.probs = self.get_probs()
+
+    def update(self, Qhat):
+        Q123 = np.tensordot(Qhat, self.Q, axes=([0], [1]))
+        self.Q = Q123
+        self.QQ = np.einsum('ijpqr,klpqr->ijklpqr', Q123, Q123)
+        self.probs = self.get_probs()
+
+    def get_probs(self):
+        # Prepare some matrices for going between axis eccentricities
+        # and probabilities
+        T = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0]])
+        Tinv = np.linalg.inv(T)
+
+        # Convert probabilities to axes
+        vecp = self.error_rate * np.array([1, 0, self.kappa])
+        veca = 1.0 - 2.0 * np.dot(T, vecp)
+
+        # Create channel matrix
+        M0 = np.diag(veca)
+
+        # Get all rotations of channel matrix
+        M1 = np.tensordot(self.QQ, M0, axes=([1, 2], [0, 1]))
+
+        # Retrieve projected axis eccentricities
+        veca = np.diagonal(M1)
+        veca = np.rollaxis(veca, 3, 0)
+
+        # Retrieve projected probabilities
+        vecp = np.tensordot(Tinv, veca - 1.0, axes=([0], [0]))
+        px = vecp[0, :, :, :]
+        py = vecp[1, :, :, :]
+        pz = vecp[2, :, :, :]
+        return {"x": px, "y": py, "z": pz, None: 1.0-px-py-pz}
 
 
-def _cos_partial(x):
-    return (x/2.0 + 1/4.0 * np.sin(2.0*x))
+class SurfboardEstimator(object):
+    def __init__(self, error_rate=0.1, kappa=0.1, grains=100):
+        self.kappa = kappa
+        self.error_rate = error_rate
+        self.grains = grains
+        self.p_angles = np.ones((grains,)*3) / float(grains ** 3)
+        theta1 = np.linspace(0, np.pi, grains)
+        psi = np.linspace(0, 2*np.pi, grains)
+        theta2 = np.linspace(0, np.pi, grains)
+        Q123 = Q(theta1, psi, theta2)
+        self.Q = Q123
+        self.Qhat = Q(0.0, 0.0, 0.0)
+        self.idx = [0, 0, 0]
+        self.bank = UpdatesBank(error_rate, kappa, grains)
+
+    def update(self, error):
+        p_update = self.bank.probs.get(error, None)
+        if p_update is not None:
+            self.p_angles = self.p_angles * p_update
+            self.p_angles = self.p_angles / np.sum(self.p_angles)
+            idx = np.argmax(self.p_angles)
+            idx = np.unravel_index(idx, self.p_angles.shape)
+            self.idx = idx
+            self.Qhat = self.Q[:, :, idx[0], idx[1], idx[2]]
+            self.bank.update(self.Qhat)
 
 
-def _sin_partial(x):
-    return (x/2.0 - 1/4.0 * np.sin(2.0*x))
+class SurfboardChannel(object):
+    def __init__(self, error_rate=0.1, kappa=0.1, grains=100):
+        self.error_rate = error_rate
+        self.kappa = kappa
+        theta1 = np.linspace(0, np.pi, grains)
+        psi = np.linspace(0, 2*np.pi, grains)
+        theta2 = np.linspace(0, np.pi, grains)
+        self.idx = np.random.randint(0, 100, 3)
+        self.theta1val = theta1[self.idx[0]]
+        self.psival = psi[self.idx[1]]
+        self.theta2val = theta2[self.idx[2]]
+        self.Qval = Q(self.theta1val, self.psival, self.theta2val)
+        self.Qeff = self.Qval
+        self.probs = self.get_probs()
 
+    def get_probs(self):
+        # Prepare some matrices for going between axis eccentricities
+        # and probabilities
+        T = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0]])
+        Tinv = np.linalg.inv(T)
 
-class ThetaPhi(Parameter):
-    """An angle of decesion from the |0> pole."""
-    def __init__(self, max_time, grains, sigma, p1, p2, p3):
-        S = np.linspace(0, np.pi, grains+1)
-        super(ThetaPhi, self).__init__(S, max_time, "Theta")
-        start_theta = np.random.rand()*np.pi
-        drift_theta = np.random.normal(0.0, sigma, max_time+1)
-        drift_theta = np.cumsum(drift_theta)
-        start_phi = np.random.rand()*np.pi
-        drift_phi = np.random.normal(0.0, sigma, max_time+1)
-        drift_phi = np.cumsum(drift_phi)
-        self.val = np.array([np.mod(start_theta + drift_theta, np.pi),
-                             np.mod(start_phi + drift_phi, np.pi)])
-        self.p1, self.p2, self.p3 = p1, p2, p3
+        # Convert probabilities to axes
+        vecp = self.error_rate * np.array([1, 0, self.kappa])
+        veca = 1.0 - 2.0 * np.dot(T, vecp)
 
-    def update(self, s, time):
-        w_x, w_z = np.sum(s[0]), np.sum(s[2])
-        if (w_x > 0) | (w_y > 0) | (w_z > 0):
-            update = np.ones(len(self.M))
-            if (w_x > 0):
-                update = update * (x_update ** (2 * w_x))
-            if (w_y > 0):
+        # Create channel matrix
+        M0 = np.diag(veca)
 
-            if (w_z > 0):
-                z_update = _sin_partial(self.S[1:] - self.hat[time]) \
-                    - _sin_partial(self.S[:-1] - self.hat[time])
-                update = update * (z_update ** (2 * w_z))
-            self.p = self.p * update
-            self.p = self.p / np.sum(self.p)
-        self.hat[time+1] = self.M[np.argmax(self.p)]
+        # Rotate channel matrix
+        M1 = np.dot(self.Qeff, M0)
+        M2 = np.dot(M1, self.Qeff.T)
 
+        # Retrieve projected axis eccentricities
+        veca = np.diagonal(M2)
 
-class Phi(Parameter):
-    """An azimuthal angle from |+>."""
-    def __init__(self, max_time, grains, sigma):
-        S = np.linspace(0, 2*np.pi, grains+1)
-        super(Phi, self).__init__(S, max_time, "Phi")
-        start = np.random.rand()*2*np.pi
-        drift = np.random.normal(0.0, sigma, max_time+1)
-        drift = np.cumsum(drift)
-        self.val = np.mod(start + drift, 2*np.pi)
+        # Retrieve projected probabilities
+        vecp = 0.5 * np.dot(Tinv, 1.0 - veca)
+        px, py, pz = vecp[0], vecp[1], vecp[2]
+        return {"x": px, "y": py, "z": pz, None: 1.0-px-py-pz}
 
-    def update(self, s, time):
-        w_x, w_y, w_z = np.sum(s[0]), np.sum(s[1]), np.sum(s[2])
-        if (w_x > 0) | (w_z > 0) | (w_y > 0):
-            update = np.ones(len(self.M))
-            if (w_x > 0):
-                x_update = _cos_partial(self.S[1:] - self.hat[time]) \
-                    - _cos_partial(self.S[:-1] - self.hat[time])
-                update = update * (x_update ** (2 * w_x))
-            if (w_y > 0):
-                y_update = _sin_partial(self.S[1:] - self.hat[time]) \
-                    - _sin_partial(self.S[:-1] - self.hat[time])
-                update = update * (y_update ** (2 * w_y))
-            self.p = self.p * update
-            self.p = self.p / np.sum(self.p)
-        self.hat[time+1] = self.M[np.argmax(self.p)]
+    def update(self, Qhat):
+        self.Qeff = np.dot(Qhat, self.Qval)
+        self.probs = self.get_probs()
 
-
-class TwoAngleDephasingChannel(Channel):
-    def __init__(self, n, max_time):
-        super(TwoAngleDephasingChannel, self).__init__(n, max_time)
-
-    def px(self, params, constants, time):
-        phi = params["Phi"].hat[time] - params["Phi"].val[time]
-        theta = params["Theta"].hat[time] - params["Theta"].val[time]
-        p1, p2, p3 = constants["p1"], constants["p2"], constants["p3"]
-        px = p1.val * (np.cos(phi) ** 2) * (np.cos(theta) ** 2) \
-            + p2.val * (np.sin(phi) ** 2) * (np.cos(theta) ** 2) \
-            + p3.val * (np.sin(theta) ** 2)
-        return px
-
-    def py(self, params, constants, time):
-        phi = params["Phi"].hat[time] - params["Phi"].val[time]
-        p1, p2 = constants["p1"], constants["p2"]
-        py = p1.val * (np.sin(phi) ** 2) \
-            + p2.val * (np.cos(phi) ** 2)
-        return py
-
-    def pz(self, params, constants, time):
-        phi = params["Phi"].hat[time] - params["Phi"].val[time]
-        theta = params["Theta"].hat[time] - params["Theta"].val[time]
-        p1, p2, p3 = constants["p1"], constants["p2"], constants["p3"]
-        pz = p1.val * (np.cos(phi) ** 2) * (np.sin(theta) ** 2) \
-            + p2.val * (np.sin(phi) ** 2) * (np.sin(theta) ** 2) \
-            + p3.val * (np.cos(theta) ** 2)
-        return pz
-
-
-class TwoAngleDephasingEstimator(Estimator):
-    def __init__(self, params, constants):
-        super(TwoAngleDephasingEstimator, self).__init__(params, constants)
+    def get_error(self):
+        probs, errors = [], []
+        for s, prob in self.probs.iteritems():
+            if prob > 0:
+                probs.append(prob)
+                errors.append(s)
+        s = np.random.choice(errors, 1, p=probs)[0]
+        return s
