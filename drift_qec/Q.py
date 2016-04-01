@@ -1,3 +1,5 @@
+"""Exposes the 5 parameter unital channel."""
+
 import numpy as np
 
 PDIAG = np.zeros((9, 9))
@@ -26,47 +28,64 @@ def SENSOR(d=0.1):
     return SENSOR
 
 
-def sample(c, n, d):
-    C = np.dot(np.dot(c["Q"], np.diag([c["kx"], c["ky"], c["kz"]])), c["Q"].T)
-    cvec = np.reshape(C, (9, 1))
-    cvec = cvec[[0, 1, 2, 4, 5, 8], :]
-    rates = np.dot(SENSOR(d), cvec).T[0]
+class Channel(object):
+    def __init__(self, kx, ky, kz, **kwargs):
+        self.kx, self.ky, self.kz = kx, ky, kz
+        self.n = kwargs.get("n", 1e6)
+        self.d = kwargs.get("d", 0.01)
+        self.Q = kwargs.get("Q", np.eye(3))
+        self.Qc = kwargs.get("Qc", np.eye(3))
+        self.Mhat = kwargs.get("Mhat", np.eye(3) / 3.0)
+        self.cycle = 1
+        self.C = np.dot(np.dot(self.Q,
+                               np.diag([self.kx, self.ky, self.kz])),
+                        self.Q.T)
+        self.Q = np.linalg.svd(self.C)[0]
 
-    # Get samples for each L_i
-    N1 = np.random.multinomial(n, rates[0:3])
-    N2 = np.random.multinomial(n, rates[3:6])
-    N3 = np.random.multinomial(n, rates[6:9])
+    def sample_data(self):
+        Cc = np.dot(np.dot(self.Qc, self.C), self.Qc.T)
+        cvec = np.reshape(Cc, (9, 1))
+        cvec = cvec[[0, 1, 2, 4, 5, 8], :]
+        rates = np.dot(SENSOR(self.d), cvec).T[0]
 
-    # Recover some coefficients
-    D1 = N1 / float(n)
-    D2 = N2 / float(n)
-    D3 = N3 / float(n)
+        # Get samples for each L_i
+        D1 = np.random.multinomial(self.n, rates[0:3]) / float(self.n)
+        D2 = np.random.multinomial(self.n, rates[3:6]) / float(self.n)
+        D3 = np.random.multinomial(self.n, rates[6:9]) / float(self.n)
 
-    data = np.r_[D1, D2, D3]
-    return data
+        data = np.r_[D1, D2, D3]
+        return data
 
+    def update(self):
+        # Get new data at this effective orientation
+        data = self.sample_data()
 
-def perfect_data(c, n, d):
-    C = np.dot(np.dot(c["Q"], np.diag([c["kx"], c["ky"], c["kz"]])), c["Q"].T)
-    cvec = np.reshape(C, (9, 1))
-    cvec = cvec[[0, 1, 2, 4, 5, 8], :]
-    data = np.dot(SENSOR(d), cvec).T[0]
-    return data
+        # Recover the process matrix at this orientation
+        Mc = self.recoverM(data, self.d)
+        Mnew = np.dot(np.dot(self.Qc.T, Mc), self.Qc)
 
+        # Update Mhat in the standard basis
+        self.Mhat = (self.cycle) / float(self.cycle+1) * self.Mhat \
+            + 1/float(self.cycle+1) * Mnew
 
-def recoverM(data, d):
-    # Linear constraint on trace
-    # R * m = data
-    # extend m by one variable x = [m; z1]
-    # http://stanford.edu/class/ee103/lectures/constrained-least-squares/constrained-least-squares_slides.pdf
-    TRACE = np.array([[1, 0, 0, 1, 0, 1]])
-    R = np.r_[2.0 * np.dot(SENSOR(d).T, SENSOR(d)), TRACE]
-    R = np.c_[R, np.r_[TRACE.T, [[0]]]]
-    Y = np.r_[2.0*np.dot(SENSOR(d).T, data), 1]
-    m = np.dot(np.dot(np.linalg.inv(np.dot(R.T, R)), R.T), Y)
-    M = np.array([
-            [m[0], m[1], m[2]],
-            [m[1], m[3], m[4]],
-            [m[2], m[4], m[5]]
-        ])
-    return M
+        # Get the orientation that would diagonalize the full Mhat
+        self.Qc = np.linalg.svd(self.Mhat)[0]
+
+        # Update the process matrices
+        self.cycle = self.cycle + 1
+
+    @staticmethod
+    def recoverM(data, d):
+        # Linear constraint on trace
+        # R * m = data
+        # extend m by one variable x = [m; z1]
+        # http://stanford.edu/class/ee103/lectures/constrained-least-squares/constrained-least-squares_slides.pdf
+        TRACE = np.array([[1, 0, 0, 1, 0, 1]])
+        R = np.r_[2.0 * np.dot(SENSOR(d).T, SENSOR(d)), TRACE]
+        R = np.c_[R, np.r_[TRACE.T, [[0]]]]
+        Y = np.r_[2.0*np.dot(SENSOR(d).T, data), 1]
+        m = np.dot(np.dot(np.linalg.inv(np.dot(R.T, R)), R.T), Y)
+        M = np.array([[m[0], m[1], m[2]],
+                      [m[1], m[3], m[4]],
+                      [m[2], m[4], m[5]]])
+        return M
