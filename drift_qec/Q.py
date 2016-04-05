@@ -66,7 +66,7 @@ class Channel(object):
 
         # Update Mhat in the standard basis
         self.Mhat = (self.cycle) / float(self.cycle+1) * self.Mhat \
-            + 1/float(self.cycle+1) * Mnew
+            + 1.0 / float(self.cycle+1) * Mnew
 
         # Get the orientation that would diagonalize the full Mhat
         self.Qc = np.linalg.svd(self.Mhat)[0]
@@ -77,15 +77,15 @@ class Channel(object):
     @staticmethod
     def recoverM(data, d):
         # Linear constraint on trace
-        # R * m = data
-        # extend m by one variable x = [m; z1]
-        # http://stanford.edu/class/ee103/lectures/constrained-least-squares/constrained-least-squares_slides.pdf
-        TRACE = np.array([[1, 0, 0, 1, 0, 1]])
-        R = np.r_[2.0 * np.dot(SENSOR(d).T, SENSOR(d)), TRACE]
-        R = np.c_[R, np.r_[TRACE.T, [[0]]]]
-        Y = np.r_[2.0*np.dot(SENSOR(d).T, data), 1]
-        m = np.dot(np.dot(np.linalg.inv(np.dot(R.T, R)), R.T), Y)
+        # L * m = data
+        # eliminate m[5] by the trace condition
+        L = SENSOR(d)
+        L[:, 0] = L[:, 0] - L[:, 5]
+        L[:, 3] = L[:, 3] - L[:, 5]
+        data = data - L[:, 5]
+        L = L[:, :5]
+        m = np.dot(np.dot(np.linalg.inv(np.dot(L.T, L)), L.T), data)
         M = np.array([[m[0], m[1], m[2]],
                       [m[1], m[3], m[4]],
-                      [m[2], m[4], m[5]]])
+                      [m[2], m[4], 1.0 - m[0] - m[3]]])
         return M
