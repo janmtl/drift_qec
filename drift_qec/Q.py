@@ -9,17 +9,21 @@ for esi in np.eye(3):
 PDIAG = PDIAG.astype(np.int)
 
 
-def Ls(d=0.1):
-    L1 = np.array([[np.cos(d), -np.sin(d), 0],
-                   [np.sin(d), np.cos(d), 0],
+def Ls(d1=0.1, d2=0.1, d3=0.1):
+    L1 = np.array([[np.cos(d1), -np.sin(d1), 0],
+                   [np.sin(d1), np.cos(d1), 0],
                    [0, 0, 1]])
-    L2 = np.roll(np.roll(L1, 1, axis=0), 1, axis=1)
-    L3 = np.roll(np.roll(L2, 1, axis=0), 1, axis=1)
+    L2 = np.array([[np.cos(d2), 0, -np.sin(d2)],
+                   [0, 1, 0],
+                   [np.sin(d2), 0, np.cos(d2)]])
+    L3 = np.array([[1, 0, 0],
+                   [0, np.cos(d3), -np.sin(d3)],
+                   [0, np.sin(d3), np.cos(d3)]])
     return L1, L2, L3
 
 
-def SENSOR(d=0.1):
-    L1, L2, L3 = Ls(d)
+def SENSOR(d1=0.1, d2=0.1, d3=0.1):
+    L1, L2, L3 = Ls(d1, d2, d3)
     LL1 = np.dot(PDIAG, np.kron(L1, L1))
     LL2 = np.dot(PDIAG, np.kron(L2, L2))
     LL3 = np.dot(PDIAG, np.kron(L3, L3))
@@ -32,7 +36,9 @@ class Channel(object):
     def __init__(self, kx, ky, kz, **kwargs):
         self.kx, self.ky, self.kz = kx, ky, kz
         self.n = kwargs.get("n", 1e6)
-        self.d = kwargs.get("d", 0.01)
+        self.d1 = kwargs.get("d1", 0.01)
+        self.d2 = kwargs.get("d2", 0.01)
+        self.d3 = kwargs.get("d3", 0.01)
         self.Q = kwargs.get("Q", np.eye(3))
         self.Qc = kwargs.get("Qc", np.eye(3))
         self.Mhat = kwargs.get("Mhat", np.eye(3) / 3.0)
@@ -46,7 +52,7 @@ class Channel(object):
         Cc = np.dot(np.dot(self.Qc, self.C), self.Qc.T)
         cvec = np.reshape(Cc, (9, 1))
         cvec = cvec[[0, 1, 2, 4, 5, 8], :]
-        rates = np.dot(SENSOR(self.d), cvec).T[0]
+        rates = np.dot(SENSOR(self.d1, self.d2, self.d3), cvec).T[0]
 
         # Get samples for each L_i
         D1 = np.random.multinomial(self.n, rates[0:3]) / float(self.n)
@@ -61,7 +67,7 @@ class Channel(object):
         data = self.sample_data()
 
         # Recover the process matrix at this orientation
-        Mc = self.recoverM(data, self.d)
+        Mc = self.recoverM(data, self.d1, self.d2, self.d3)
         Mnew = np.dot(np.dot(self.Qc.T, Mc), self.Qc)
 
         # Update Mhat in the standard basis
@@ -75,11 +81,11 @@ class Channel(object):
         self.cycle = self.cycle + 1
 
     @staticmethod
-    def recoverM(data, d):
+    def recoverM(data, d1, d2, d3):
         # Linear constraint on trace
         # L * m = data
         # eliminate m[5] by the trace condition
-        L = SENSOR(d)
+        L = SENSOR(d1, d2, d3)
         L[:, 0] = L[:, 0] - L[:, 5]
         L[:, 3] = L[:, 3] - L[:, 5]
         data = data - L[:, 5]
